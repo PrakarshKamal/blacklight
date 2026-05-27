@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeDocument } from "@/lib/analyze";
 import { extractFromBuffer, loadSampleFile } from "@/lib/extract";
+import { isServerlessEnvironment } from "@/lib/runtime";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   const logs: string[] = ["Initializing Blacklight scanner…"];
+  if (isServerlessEnvironment()) {
+    logs.push("Mode: serverless-safe scan (PDF text layer + light OCR)");
+  }
 
   try {
     const formData = await request.formData();
@@ -52,13 +57,18 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ...result, logs });
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to scan document";
     console.error("Scan error:", error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Failed to scan document",
+        error: message,
+        logs: [...logs, `Error: ${message}`],
       },
-      { status: 500 }
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
     );
   }
 }

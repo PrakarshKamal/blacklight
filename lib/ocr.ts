@@ -47,23 +47,54 @@ async function buildOcrCandidates(input: Buffer): Promise<OcrCandidate[]> {
   ];
 }
 
-export async function ocrFromBufferDetailed(buffer: Buffer): Promise<{
+type OcrOptions = {
+  /** Single fast pass for serverless (Vercel timeout/memory). */
+  light?: boolean;
+};
+
+export async function ocrFromBufferDetailed(
+  buffer: Buffer,
+  options?: OcrOptions
+): Promise<{
   text: string;
   bestPass: string;
 }> {
+  const maxMs = options?.light ? 8_000 : MAX_OCR_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), MAX_OCR_MS);
+  const timer = setTimeout(() => controller.abort(), maxMs);
 
   try {
-    const candidates = await buildOcrCandidates(buffer);
+    const candidates = options?.light
+      ? [
+          {
+            label: "original",
+            buffer: await sharp(buffer, { failOn: "none" })
+              .rotate()
+              .resize({
+                width: 1800,
+                height: 1800,
+                fit: "inside",
+                withoutEnlargement: true,
+              })
+              .png()
+              .toBuffer(),
+          },
+        ]
+      : await buildOcrCandidates(buffer);
     let best = "";
     let bestScore = 0;
     let bestPass = "none";
 
     for (const candidate of candidates) {
-      const result = await Tesseract.recognize(candidate.buffer, "eng", {
-        logger: () => {},
-      });
+      let result;
+      try {
+        result = await Tesseract.recognize(candidate.buffer, "eng", {
+          logger: () => {},
+        });
+      } catch (ocrErr) {
+        console.warn("OCR pass failed:", candidate.label, ocrErr);
+        continue;
+      }
       const text = (result.data.text ?? "").trim();
       const score = scoreOcrText(text);
       if (score > bestScore) {
@@ -74,6 +105,9 @@ export async function ocrFromBufferDetailed(buffer: Buffer): Promise<{
     }
 
     return { text: best, bestPass };
+  } catch (err) {
+    console.warn("OCR pipeline failed:", err);
+    return { text: "", bestPass: "failed" };
   } finally {
     clearTimeout(timer);
   }

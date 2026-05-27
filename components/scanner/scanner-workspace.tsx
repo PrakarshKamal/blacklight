@@ -44,7 +44,23 @@ export function ScannerWorkspace() {
       }, 400);
 
       const response = await responsePromise;
-      const data = await response.json();
+      const contentType = response.headers.get("content-type") ?? "";
+      const raw = await response.text();
+      let data: { error?: string; logs?: string[] } & Partial<ScanResult>;
+
+      if (contentType.includes("application/json")) {
+        try {
+          data = JSON.parse(raw) as typeof data;
+        } catch {
+          throw new Error("Scan API returned invalid JSON");
+        }
+      } else {
+        throw new Error(
+          raw.startsWith("<!")
+            ? "Scan API crashed on server (HTML error page). Redeploy after latest fix or check Vercel function logs."
+            : raw.slice(0, 200) || "Scan failed"
+        );
+      }
 
       if (!response.ok) {
         throw new Error(data.error ?? "Scan failed");

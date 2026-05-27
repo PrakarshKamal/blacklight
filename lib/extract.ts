@@ -3,6 +3,7 @@ import path from "path";
 import { PDFParse } from "pdf-parse";
 import { detectVisualObfuscation } from "./obfuscation";
 import { ocrFromBufferDetailed } from "./ocr";
+import { appOrigin, isServerlessEnvironment } from "./runtime";
 import type { ExtractionLayer, ExtractionResult } from "./types";
 
 const IMAGE_EXT = new Set([
@@ -22,10 +23,37 @@ function joinLayers(layers: ExtractionLayer[]): string {
   return layers.map((l) => `[${l.label}]\n${l.content}`).join("\n\n---\n\n");
 }
 
+/** PDF text layer only — reliable on Vercel (no page render OCR). */
+async function extractPdfLayersLight(buffer: Buffer): Promise<{
+  layers: ExtractionLayer[];
+  pdfTextLayerLeak: boolean;
+}> {
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const textResult = await parser.getText();
+    const pdfText = (textResult.text ?? "").trim();
+    const layers: ExtractionLayer[] = [];
+    if (pdfText) {
+      layers.push({
+        source: "pdf_text",
+        label: "PDF text layer (includes text under visual covers)",
+        content: pdfText,
+      });
+    }
+    return { layers, pdfTextLayerLeak: false };
+  } finally {
+    await parser.destroy();
+  }
+}
+
 async function extractPdfLayers(buffer: Buffer): Promise<{
   layers: ExtractionLayer[];
   pdfTextLayerLeak: boolean;
 }> {
+  if (isServerlessEnvironment()) {
+    return extractPdfLayersLight(buffer);
+  }
+
   const layers: ExtractionLayer[] = [];
   let pdfText = "";
   let pageOcrCombined = "";
@@ -136,7 +164,9 @@ export async function extractFromBuffer(
   } else if (IMAGE_EXT.has(ext)) {
     obfuscation = await detectVisualObfuscation(buffer);
 
-    const { text, bestPass } = await ocrFromBufferDetailed(buffer);
+    const { text, bestPass } = await ocrFromBufferDetailed(buffer, {
+      light: isServerlessEnvironment(),
+    });
     layers.push({
       source: "ocr_image",
       label: `OCR image scan (${bestPass})`,
@@ -181,6 +211,20 @@ export async function loadSampleFile(sampleId: string): Promise<{
   }
 
   const filePath = path.join(process.cwd(), "public", "samples", fileName);
-  const buffer = await readFile(filePath);
-  return { buffer, fileName };
+
+  try {
+    const buffer = await readFile(filePath);
+    return { buffer, fileName };
+  } catch (readErr) {
+    console.warn("Sample readFile failed, fetching from app origin:", readErr);
+    const url = `${appOrigin()}/samples/${encodeURIComponent(fileName)}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      throw new Error(
+        `Sample file not found (${fileName}). Ensure public/samples is deployed.`
+      );
+    }
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return { buffer, fileName };
+  }
 }
