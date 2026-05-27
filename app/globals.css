@@ -154,6 +154,14 @@
     @apply text-xs font-medium uppercase tracking-[0.2em] text-zinc-500;
   }
 
+  .section-title {
+    @apply text-3xl font-semibold tracking-tight text-zinc-100 sm:text-4xl;
+  }
+
+  .section-copy {
+    @apply max-w-2xl text-sm leading-relaxed text-zinc-400 sm:text-base;
+  }
+
   .gradient-text {
     @apply bg-gradient-to-r from-violet-300 via-zinc-100 to-red-300 bg-clip-text text-transparent;
   }
