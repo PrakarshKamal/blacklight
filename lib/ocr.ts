@@ -1,5 +1,22 @@
-import Tesseract from "tesseract.js";
-import sharp from "sharp";
+type SharpModule = typeof import("sharp");
+type TesseractModule = typeof import("tesseract.js");
+
+let sharpMod: SharpModule | null = null;
+let tesseractMod: TesseractModule | null = null;
+
+async function getSharp(): Promise<SharpModule> {
+  if (!sharpMod) {
+    sharpMod = (await import("sharp")) as SharpModule;
+  }
+  return sharpMod;
+}
+
+async function getTesseract(): Promise<TesseractModule> {
+  if (!tesseractMod) {
+    tesseractMod = (await import("tesseract.js")) as TesseractModule;
+  }
+  return tesseractMod;
+}
 
 const MAX_OCR_MS = 25_000;
 const MAX_DIMENSION = 2400;
@@ -18,7 +35,8 @@ function scoreOcrText(text: string): number {
 }
 
 async function buildOcrCandidates(input: Buffer): Promise<OcrCandidate[]> {
-  const base = sharp(input, { failOn: "none" }).rotate();
+  const sharp = await getSharp();
+  const base = sharp.default(input, { failOn: "none" }).rotate();
   const metadata = await base.metadata();
   const resizeOptions =
     metadata.width && metadata.height && (metadata.width > MAX_DIMENSION || metadata.height > MAX_DIMENSION)
@@ -64,11 +82,12 @@ export async function ocrFromBufferDetailed(
   const timer = setTimeout(() => controller.abort(), maxMs);
 
   try {
+    const sharp = await getSharp();
     const candidates = options?.light
       ? [
           {
             label: "original",
-            buffer: await sharp(buffer, { failOn: "none" })
+            buffer: await sharp.default(buffer, { failOn: "none" })
               .rotate()
               .resize({
                 width: 1800,
@@ -88,7 +107,8 @@ export async function ocrFromBufferDetailed(
     for (const candidate of candidates) {
       let result;
       try {
-        result = await Tesseract.recognize(candidate.buffer, "eng", {
+        const Tesseract = await getTesseract();
+        result = await Tesseract.default.recognize(candidate.buffer, "eng", {
           logger: () => {},
         });
       } catch (ocrErr) {
