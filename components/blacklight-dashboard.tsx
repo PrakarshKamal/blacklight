@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import Image from "next/image";
 import {
   Shield,
   ShieldAlert,
@@ -138,8 +139,15 @@ export function BlacklightDashboard() {
       <header className="relative border-b border-zinc-800/80 bg-zinc-950/60 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-600/20 ring-1 ring-red-500/40">
-              <Shield className="h-5 w-5 text-red-400" />
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg ring-1 ring-zinc-700/80">
+              <Image
+                src="/branding/blacklight-logo.png"
+                alt="Blacklight logo"
+                width={40}
+                height={40}
+                className="h-10 w-10 object-cover"
+                priority
+              />
             </div>
             <div>
               <h1 className="text-lg font-semibold tracking-tight">
