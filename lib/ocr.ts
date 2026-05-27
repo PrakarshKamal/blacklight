@@ -1,21 +1,79 @@
-type SharpModule = typeof import("sharp");
-type TesseractModule = typeof import("tesseract.js");
+type SharpFactory = (input: Buffer, options?: { failOn?: string }) => {
+  rotate: () => SharpPipeline;
+  metadata: () => Promise<{ width?: number; height?: number }>;
+  clone: () => SharpPipeline;
+  resize: (options?: unknown) => SharpPipeline;
+  grayscale: () => SharpPipeline;
+  normalize: () => SharpPipeline;
+  sharpen: () => SharpPipeline;
+  linear: (a: number, b?: number) => SharpPipeline;
+  threshold: (t: number) => SharpPipeline;
+  negate: () => SharpPipeline;
+  png: () => SharpPipeline;
+  toBuffer: () => Promise<Buffer>;
+};
 
-let sharpMod: SharpModule | null = null;
-let tesseractMod: TesseractModule | null = null;
+type SharpPipeline = {
+  rotate: () => SharpPipeline;
+  metadata: () => Promise<{ width?: number; height?: number }>;
+  clone: () => SharpPipeline;
+  resize: (options?: unknown) => SharpPipeline;
+  grayscale: () => SharpPipeline;
+  normalize: () => SharpPipeline;
+  sharpen: () => SharpPipeline;
+  linear: (a: number, b?: number) => SharpPipeline;
+  threshold: (t: number) => SharpPipeline;
+  negate: () => SharpPipeline;
+  png: () => SharpPipeline;
+  toBuffer: () => Promise<Buffer>;
+};
 
-async function getSharp(): Promise<SharpModule> {
-  if (!sharpMod) {
-    sharpMod = (await import("sharp")) as SharpModule;
+type SharpLike = {
+  default?: SharpFactory;
+} & SharpFactory;
+
+type TesseractLike = {
+  default?: {
+    recognize: (
+      image: Buffer,
+      lang: string,
+      options?: { logger?: (m: unknown) => void }
+    ) => Promise<{ data: { text?: string } }>;
+  };
+  recognize?: (
+    image: Buffer,
+    lang: string,
+    options?: { logger?: (m: unknown) => void }
+  ) => Promise<{ data: { text?: string } }>;
+};
+
+let sharpFactory: SharpFactory | null = null;
+let tesseractRecognize:
+  | ((
+      image: Buffer,
+      lang: string,
+      options?: { logger?: (m: unknown) => void }
+    ) => Promise<{ data: { text?: string } }>)
+  | null = null;
+
+async function getSharpFactory(): Promise<SharpFactory> {
+  if (!sharpFactory) {
+    const mod = (await import("sharp")) as unknown as SharpLike;
+    sharpFactory = (mod.default ?? mod) as SharpFactory;
   }
-  return sharpMod;
+  return sharpFactory;
 }
 
-async function getTesseract(): Promise<TesseractModule> {
-  if (!tesseractMod) {
-    tesseractMod = (await import("tesseract.js")) as TesseractModule;
+async function getTesseractRecognize(): Promise<NonNullable<typeof tesseractRecognize>> {
+  if (!tesseractRecognize) {
+    const mod = (await import("tesseract.js")) as unknown as TesseractLike;
+    tesseractRecognize =
+      mod.default?.recognize ?? mod.recognize ?? null;
+    if (!tesseractRecognize) {
+      throw new Error("tesseract.js recognize() not available");
+    }
   }
-  return tesseractMod;
+  return tesseractRecognize;
 }
 
 const MAX_OCR_MS = 25_000;
@@ -35,8 +93,8 @@ function scoreOcrText(text: string): number {
 }
 
 async function buildOcrCandidates(input: Buffer): Promise<OcrCandidate[]> {
-  const sharp = await getSharp();
-  const base = sharp.default(input, { failOn: "none" }).rotate();
+  const sharp = await getSharpFactory();
+  const base = sharp(input, { failOn: "none" }).rotate();
   const metadata = await base.metadata();
   const resizeOptions =
     metadata.width && metadata.height && (metadata.width > MAX_DIMENSION || metadata.height > MAX_DIMENSION)
@@ -82,12 +140,12 @@ export async function ocrFromBufferDetailed(
   const timer = setTimeout(() => controller.abort(), maxMs);
 
   try {
-    const sharp = await getSharp();
+    const sharp = await getSharpFactory();
     const candidates = options?.light
       ? [
           {
             label: "original",
-            buffer: await sharp.default(buffer, { failOn: "none" })
+            buffer: await sharp(buffer, { failOn: "none" })
               .rotate()
               .resize({
                 width: 1800,
@@ -107,8 +165,8 @@ export async function ocrFromBufferDetailed(
     for (const candidate of candidates) {
       let result;
       try {
-        const Tesseract = await getTesseract();
-        result = await Tesseract.default.recognize(candidate.buffer, "eng", {
+        const recognize = await getTesseractRecognize();
+        result = await recognize(candidate.buffer, "eng", {
           logger: () => {},
         });
       } catch (ocrErr) {
