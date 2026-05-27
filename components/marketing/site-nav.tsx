@@ -37,11 +37,14 @@ export function SiteNav() {
           </a>
         </nav>
 
-        <ShimmerButton asChild className="h-9 px-4 text-sm">
-          <a href="#scanner">
-            <ShieldCheck className="mr-1.5 h-4 w-4" />
-            Scan now
-          </a>
+        <ShimmerButton
+          className="h-9 px-4 text-sm"
+          onClick={() => {
+            window.location.hash = "scanner";
+          }}
+        >
+          <ShieldCheck className="mr-1.5 h-4 w-4" />
+          Scan now
         </ShimmerButton>
       </div>
     </header>

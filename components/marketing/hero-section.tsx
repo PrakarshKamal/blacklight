@@ -16,8 +16,13 @@ export function HeroSection() {
         with PDF parsing, OCR, and hybrid AI analysis.
       </p>
       <div className="mt-8 flex flex-wrap gap-3">
-        <ShimmerButton asChild className="h-10 px-5">
-          <a href="#scanner">Scan a document</a>
+        <ShimmerButton
+          className="h-10 px-5"
+          onClick={() => {
+            window.location.hash = "scanner";
+          }}
+        >
+          Scan a document
         </ShimmerButton>
         <Badge
           variant="outline"
