@@ -225,7 +225,7 @@ export async function loadSampleFile(sampleId: string): Promise<{
     "malicious-invoice": isServerlessEnvironment()
       ? "invoice.txt"
       : "invoice-malicious.pdf",
-    "clean-resume": "resume-clean.pdf",
+    "clean-resume": isServerlessEnvironment() ? "resume.txt" : "resume-clean.pdf",
     "malicious-screenshot": "malicious-screenshot.png",
   };
 
