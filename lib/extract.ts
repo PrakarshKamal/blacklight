@@ -1,10 +1,29 @@
 import { readFile } from "fs/promises";
 import path from "path";
-import { PDFParse } from "pdf-parse";
 import { detectVisualObfuscation } from "./obfuscation";
 import { ocrFromBufferDetailed } from "./ocr";
 import { appOrigin, isServerlessEnvironment } from "./runtime";
 import type { ExtractionLayer, ExtractionResult } from "./types";
+
+type PdfParseCtor = new (options: { data: Buffer }) => {
+  getText: () => Promise<{ text?: string }>;
+  getScreenshot: (options: {
+    imageBuffer: boolean;
+    scale?: number;
+  }) => Promise<{ pages?: { data?: Uint8Array; pageNumber?: number }[] }>;
+  getImage: (options: {
+    imageThreshold: number;
+    imageBuffer: boolean;
+  }) => Promise<{
+    pages?: { pageNumber?: number; images?: { data?: Uint8Array }[] }[];
+  }>;
+  destroy: () => Promise<void>;
+};
+
+async function getPdfParse(): Promise<PdfParseCtor> {
+  const mod = (await import("pdf-parse")) as unknown as { PDFParse: PdfParseCtor };
+  return mod.PDFParse;
+}
 
 const IMAGE_EXT = new Set([
   ".png",
@@ -28,6 +47,7 @@ async function extractPdfLayersLight(buffer: Buffer): Promise<{
   layers: ExtractionLayer[];
   pdfTextLayerLeak: boolean;
 }> {
+  const PDFParse = await getPdfParse();
   const parser = new PDFParse({ data: buffer });
   try {
     const textResult = await parser.getText();
@@ -57,6 +77,7 @@ async function extractPdfLayers(buffer: Buffer): Promise<{
   const layers: ExtractionLayer[] = [];
   let pdfText = "";
   let pageOcrCombined = "";
+  const PDFParse = await getPdfParse();
   const parser = new PDFParse({ data: buffer });
 
   try {
@@ -200,7 +221,10 @@ export async function loadSampleFile(sampleId: string): Promise<{
   fileName: string;
 }> {
   const map: Record<string, string> = {
-    "malicious-invoice": "invoice-malicious.pdf",
+    // Vercel serverless: avoid PDF parsing by using deterministic text sample.
+    "malicious-invoice": isServerlessEnvironment()
+      ? "invoice.txt"
+      : "invoice-malicious.pdf",
     "clean-resume": "resume-clean.pdf",
     "malicious-screenshot": "malicious-screenshot.png",
   };
