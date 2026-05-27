@@ -7,7 +7,7 @@ import {
   type ElementType,
   type MouseEvent,
 } from "react";
-import { ArrowRight, Link, Zap } from "lucide-react";
+import { ArrowRight, Link } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +22,6 @@ export interface TimelineItem {
   icon: ElementType;
   relatedIds: number[];
   status: "completed" | "in-progress" | "pending";
-  energy: number;
 }
 
 interface RadialOrbitalTimelineProps {
@@ -192,10 +191,10 @@ export function RadialOrbitalTimeline({
                   style={{
                     background:
                       "radial-gradient(circle, rgba(139,92,246,0.25) 0%, rgba(139,92,246,0) 70%)",
-                    width: `${item.energy * 0.4 + 36}px`,
-                    height: `${item.energy * 0.4 + 36}px`,
-                    left: `-${(item.energy * 0.4 + 36 - 40) / 2}px`,
-                    top: `-${(item.energy * 0.4 + 36 - 40) / 2}px`,
+                    width: "44px",
+                    height: "44px",
+                    left: "-2px",
+                    top: "-2px",
                   }}
                 />
 
@@ -242,24 +241,6 @@ export function RadialOrbitalTimeline({
                     </CardHeader>
                     <CardContent className="text-xs leading-relaxed text-zinc-400">
                       <p>{item.content}</p>
-
-                      <div className="mt-4 border-t border-zinc-800 pt-3">
-                        <div className="mb-1 flex items-center justify-between text-xs">
-                          <span className="flex items-center text-zinc-500">
-                            <Zap className="mr-1 h-3 w-3" />
-                            Coverage
-                          </span>
-                          <span className="font-mono text-zinc-300">
-                            {item.energy}%
-                          </span>
-                        </div>
-                        <div className="h-1 overflow-hidden rounded-full bg-zinc-800">
-                          <div
-                            className="h-full bg-gradient-to-r from-violet-500 to-red-500"
-                            style={{ width: `${item.energy}%` }}
-                          />
-                        </div>
-                      </div>
 
                       {item.relatedIds.length > 0 && (
                         <div className="mt-4 border-t border-zinc-800 pt-3">

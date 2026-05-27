@@ -24,7 +24,6 @@ const timelineData: TimelineItem[] = [
     icon: FileText,
     relatedIds: [2],
     status: "completed",
-    energy: 95,
   },
   {
     id: 2,
@@ -36,7 +35,6 @@ const timelineData: TimelineItem[] = [
     icon: ScanEye,
     relatedIds: [1, 3],
     status: "completed",
-    energy: 88,
   },
   {
     id: 3,
@@ -48,7 +46,6 @@ const timelineData: TimelineItem[] = [
     icon: Sparkles,
     relatedIds: [2, 4],
     status: "in-progress",
-    energy: 92,
   },
   {
     id: 4,
@@ -60,7 +57,6 @@ const timelineData: TimelineItem[] = [
     icon: ShieldCheck,
     relatedIds: [3, 5],
     status: "completed",
-    energy: 90,
   },
   {
     id: 5,
@@ -72,7 +68,6 @@ const timelineData: TimelineItem[] = [
     icon: Gauge,
     relatedIds: [4, 6],
     status: "completed",
-    energy: 85,
   },
   {
     id: 6,
@@ -84,7 +79,6 @@ const timelineData: TimelineItem[] = [
     icon: Plug,
     relatedIds: [5],
     status: "pending",
-    energy: 80,
   },
 ];
 
