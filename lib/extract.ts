@@ -226,7 +226,9 @@ export async function loadSampleFile(sampleId: string): Promise<{
       ? "invoice.txt"
       : "invoice-malicious.pdf",
     "clean-resume": isServerlessEnvironment() ? "resume.txt" : "resume-clean.pdf",
-    "malicious-screenshot": "malicious-screenshot.png",
+    "malicious-screenshot": isServerlessEnvironment()
+      ? "screenshot-ocr.txt"
+      : "malicious-screenshot.png",
   };
 
   const fileName = map[sampleId];
