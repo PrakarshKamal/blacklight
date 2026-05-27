@@ -1,5 +1,6 @@
 import { ShimmerButton } from "@/components/ui/shimmer-button";
 import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 
 export function HeroSection() {
   return (
@@ -16,14 +17,9 @@ export function HeroSection() {
         with PDF parsing, OCR, and hybrid AI analysis.
       </p>
       <div className="mt-8 flex flex-wrap gap-3">
-        <ShimmerButton
-          className="h-10 px-5"
-          onClick={() => {
-            window.location.hash = "scanner";
-          }}
-        >
-          Scan a document
-        </ShimmerButton>
+        <Link href="#scanner">
+          <ShimmerButton className="h-10 px-5">Scan a document</ShimmerButton>
+        </Link>
         <Badge
           variant="outline"
           className="h-10 border-zinc-700 px-4 text-zinc-300"
