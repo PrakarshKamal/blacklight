@@ -21,11 +21,7 @@ export const metadata: Metadata = {
   title: "Blacklight — AI Firewall for File Uploads",
   description:
     "Scan PDFs and documents for hidden prompt injections before they reach LLMs.",
-  icons: {
-    icon: "/branding/blacklight-logo.png",
-    shortcut: "/branding/blacklight-logo.png",
-    apple: "/branding/blacklight-logo.png",
-  },
+
 };
 
 export default function RootLayout({
