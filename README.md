@@ -36,15 +36,15 @@ node scripts/generate-samples.mjs
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and scroll to **Live scanner**.
+Open [https://blacklight-ai.vercel.app/](https://blacklight-ai.vercel.app/) and scroll to **Live scanner**.
 
 ## Demo samples
 
-| Button | Purpose |
-|--------|---------|
+| Button                    | Purpose                           |
+| ------------------------- | --------------------------------- |
 | **Try Malicious Invoice** | Hidden injection in document text |
-| **Try Clean Resume** | Benign baseline (no threat) |
-| **Try OCR Screenshot** | Image-style injection path |
+| **Try Clean Resume**      | Benign baseline (no threat)       |
+| **Try OCR Screenshot**    | Image-style injection path        |
 
 ## API
 
@@ -59,10 +59,10 @@ Open [http://localhost:3000](http://localhost:3000) and scroll to **Live scanner
 
 ## Environment variables
 
-| Variable | Purpose |
-|----------|---------|
-| `OPENAI_API_KEY` | Enables LLM analysis layer |
-| `OPENAI_MODEL` | Optional — defaults to `gpt-4o-mini` |
+| Variable         | Purpose                              |
+| ---------------- | ------------------------------------ |
+| `OPENAI_API_KEY` | Enables LLM analysis layer           |
+| `OPENAI_MODEL`   | Optional — defaults to `gpt-4o-mini` |
 
 Without `OPENAI_API_KEY`, scans run on **regex + extraction/OCR** only.
 
