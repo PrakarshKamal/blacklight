@@ -40,8 +40,25 @@ describe("analyzeDocument (regex-only mode)", () => {
       []
     );
     expect(result.status).toBe("clean");
-    expect(result.riskScore).toBeLessThan(15);
+    expect(result.riskScore).toBe(0);
     expect(result.threats).toHaveLength(0);
+  });
+
+  it("assigns a small residual risk for a sub-threshold footer-concealment hint", async () => {
+    const result = await analyzeDocument(
+      extraction("Totally normal invoice body text.", {
+        obfuscation: {
+          detected: false,
+          description: "Minor near-white footer region.",
+          coveragePercent: 5,
+          footerConcealment: true,
+        },
+      }),
+      "invoice.png",
+      []
+    );
+    expect(result.status).toBe("clean");
+    expect(result.riskScore).toBe(8);
   });
 
   it("escalates on visual obfuscation even without textual threats", async () => {

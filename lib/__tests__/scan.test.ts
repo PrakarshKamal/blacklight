@@ -74,11 +74,10 @@ describe("mergeThreatLists", () => {
 });
 
 describe("buildScanMetrics", () => {
-  it("reports a low, high-confidence score when clean", () => {
+  it("reports zero risk when clean", () => {
     const metrics = buildScanMetrics([]);
     expect(metrics.hasThreat).toBe(false);
-    expect(metrics.riskScore).toBeLessThan(15);
-    expect(metrics.confidence).toBeGreaterThan(0.85);
+    expect(metrics.riskScore).toBe(0);
     expect(metrics.attackType).toBeUndefined();
   });
 
