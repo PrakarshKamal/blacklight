@@ -1,8 +1,11 @@
+export type Severity = "low" | "medium" | "high" | "critical";
+
 export type ThreatMatch = {
   text: string;
   start: number;
   end: number;
   pattern: string;
+  severity?: Severity;
 };
 
 export type ExtractionLayer = {
@@ -58,3 +61,20 @@ export type ScanResult = {
   obfuscationDetected?: boolean;
   obfuscationSummary?: string;
 };
+
+/** Stable error codes returned by POST /api/scan. */
+export type ScanErrorCode =
+  | "INVALID_INPUT"
+  | "UNSUPPORTED_TYPE"
+  | "FILE_TOO_LARGE"
+  | "NO_TEXT"
+  | "RATE_LIMITED"
+  | "INTERNAL";
+
+export type ScanErrorResponse = {
+  error: { code: ScanErrorCode; message: string };
+  requestId: string;
+};
+
+/** Either a successful scan result or a structured error envelope. */
+export type ScanApiResponse = ScanResult | ScanErrorResponse;

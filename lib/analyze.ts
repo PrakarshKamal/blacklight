@@ -1,4 +1,6 @@
+import { isLlmEnabled } from "./env";
 import { analyzeWithLlm } from "./llm";
+import { logger, type Logger } from "./logger";
 import {
   buildScanMetrics,
   detectThreats,
@@ -6,6 +8,7 @@ import {
   mergeThreatLists,
   sanitizeText,
 } from "./scan";
+import { OBFUSCATION_CONFIDENCE_FLOOR, OBFUSCATION_RISK_FLOOR } from "./scoring";
 import type {
   ExtractionResult,
   LlmAnalysis,
@@ -25,6 +28,7 @@ function threatsFromLlmEvidence(
       threats.push({
         ...located,
         pattern: `llm:${item.reason.slice(0, 40).replace(/\s+/g, "_")}`,
+        severity: "high",
       });
     }
   }
@@ -110,8 +114,8 @@ function applyObfuscationSuspicion(
 
   return {
     hasThreat: true,
-    riskScore: Math.max(base.riskScore, 58),
-    confidence: Math.max(base.confidence, 0.72),
+    riskScore: Math.max(base.riskScore, OBFUSCATION_RISK_FLOOR),
+    confidence: Math.max(base.confidence, OBFUSCATION_CONFIDENCE_FLOOR),
     attackType: "Visual Obfuscation (concealed region)",
     summary: `${obfuscationSummary} Content may be hidden under a white rectangle; review PDF text layer or source file.`,
     obfuscationDetected: true,
@@ -122,7 +126,8 @@ function applyObfuscationSuspicion(
 export async function analyzeDocument(
   extraction: ExtractionResult,
   fileName: string,
-  logs: string[]
+  logs: string[],
+  log: Logger = logger
 ): Promise<ScanResult> {
   const { fullText, layers } = extraction;
   const ocrUsed = layers.some(
@@ -156,9 +161,9 @@ export async function analyzeDocument(
     .join("\n");
 
   let llm: LlmAnalysis | null = null;
-  if (process.env.OPENAI_API_KEY?.trim()) {
+  if (isLlmEnabled()) {
     logs.push("Running LLM threat analysis…");
-    llm = await analyzeWithLlm(fullText, layerSummary);
+    llm = await analyzeWithLlm(fullText, layerSummary, log);
     if (llm) {
       logs.push(
         llm.threatDetected
@@ -175,7 +180,7 @@ export async function analyzeDocument(
   const llmThreats = llm ? threatsFromLlmEvidence(fullText, llm) : [];
   const threats = mergeThreatLists(regexThreats, llmThreats);
 
-  let metrics = resolveMetrics(regexThreats, llm);
+  const metrics = resolveMetrics(regexThreats, llm);
   let hasThreat =
     metrics.hasThreat || threats.length > 0 || (llm?.threatDetected ?? false);
 

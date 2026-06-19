@@ -1,28 +1,85 @@
-import type { ThreatMatch } from "./types";
+import {
+  classifyAttack,
+  confidenceFromThreats,
+  riskFromThreats,
+} from "./scoring";
+import type { Severity, ThreatMatch } from "./types";
 
-const INJECTION_PATTERNS: { pattern: RegExp; label: string }[] = [
+type InjectionPattern = { pattern: RegExp; label: string; severity: Severity };
+
+const INJECTION_PATTERNS: InjectionPattern[] = [
   {
     pattern: /ignore\s+(all\s+)?previous\s+instructions?/gi,
     label: "ignore_previous_instructions",
+    severity: "critical",
   },
-  { pattern: /disregard\s+(all\s+)?prior\s+instructions?/gi, label: "disregard_prior" },
-  { pattern: /system\s+prompt/gi, label: "system_prompt" },
-  { pattern: /developer\s+message/gi, label: "developer_message" },
-  { pattern: /reveal\s+(the\s+)?(system\s+)?prompt/gi, label: "reveal_prompt" },
-  { pattern: /reveal\s+customer\s+data/gi, label: "data_exfiltration" },
-  { pattern: /exfiltrat/gi, label: "exfiltration" },
-  { pattern: /hidden\s+instruction/gi, label: "hidden_instruction" },
-  { pattern: /leak\s+(customer|user|secret)/gi, label: "data_leak" },
-  { pattern: /summarize\s+this\s+as\s+safe/gi, label: "jailbreak_summarize" },
-  { pattern: /you\s+are\s+now\s+/gi, label: "role_override" },
-  { pattern: /do\s+not\s+follow\s+(your|the)\s+/gi, label: "instruction_override" },
+  {
+    pattern: /disregard\s+(all\s+)?prior\s+instructions?/gi,
+    label: "disregard_prior",
+    severity: "critical",
+  },
+  {
+    pattern: /forget\s+(everything|all\s+previous|your\s+instructions)/gi,
+    label: "forget_context",
+    severity: "high",
+  },
+  {
+    pattern: /(?:^|\b)new\s+instructions?\s*[:\-]/gi,
+    label: "new_instructions",
+    severity: "high",
+  },
+  { pattern: /system\s+prompt/gi, label: "system_prompt", severity: "high" },
+  { pattern: /developer\s+message/gi, label: "developer_message", severity: "high" },
+  {
+    pattern: /reveal\s+(the\s+)?(system\s+)?prompt/gi,
+    label: "reveal_prompt",
+    severity: "high",
+  },
+  {
+    pattern: /(print|output|repeat|show)\s+(your\s+|the\s+)?(system\s+)?(prompt|instructions)/gi,
+    label: "print_prompt",
+    severity: "high",
+  },
+  {
+    pattern: /reveal\s+customer\s+data/gi,
+    label: "data_exfiltration",
+    severity: "critical",
+  },
+  { pattern: /exfiltrat/gi, label: "exfiltration", severity: "high" },
+  { pattern: /hidden\s+instruction/gi, label: "hidden_instruction", severity: "high" },
+  {
+    pattern: /leak\s+(customer|user|secret)/gi,
+    label: "data_leak",
+    severity: "critical",
+  },
+  {
+    pattern: /summarize\s+this\s+as\s+safe/gi,
+    label: "jailbreak_summarize",
+    severity: "medium",
+  },
+  { pattern: /you\s+are\s+now\s+/gi, label: "role_override", severity: "high" },
+  {
+    pattern: /do\s+not\s+follow\s+(your|the)\s+/gi,
+    label: "instruction_override",
+    severity: "high",
+  },
+  {
+    pattern: /\b(do\s+anything\s+now|DAN\s+mode)\b/gi,
+    label: "jailbreak_dan",
+    severity: "high",
+  },
+  {
+    pattern: /override\s+(the\s+)?(safety|content|security)\s+(polic\w+|filters?|rules?)/gi,
+    label: "override_policy",
+    severity: "critical",
+  },
 ];
 
 export function detectThreats(text: string): ThreatMatch[] {
   const threats: ThreatMatch[] = [];
   const seen = new Set<string>();
 
-  for (const { pattern, label } of INJECTION_PATTERNS) {
+  for (const { pattern, label, severity } of INJECTION_PATTERNS) {
     const flags = pattern.flags;
     const global = flags.includes("g");
     const re = global
@@ -38,6 +95,7 @@ export function detectThreats(text: string): ThreatMatch[] {
         start: match.index,
         end: match.index + match[0].length,
         pattern: label,
+        severity,
       });
     }
   }
@@ -53,7 +111,7 @@ export function locateQuoteInText(
   const q = quote.trim();
   if (!q) return null;
 
-  let idx = text.indexOf(q);
+  const idx = text.indexOf(q);
   if (idx !== -1) {
     return { text: q, start: idx, end: idx + q.length, pattern: "llm_evidence" };
   }
@@ -119,24 +177,9 @@ export function sanitizeText(text: string, threats: ThreatMatch[]): string {
 
 export function buildScanMetrics(threats: ThreatMatch[]) {
   const hasThreat = threats.length > 0;
-  const riskScore = hasThreat
-    ? Math.min(99, 65 + threats.length * 10 + Math.min(20, threats[0]?.text.length ?? 0))
-    : 5;
-  const confidence = hasThreat ? 0.82 + Math.min(0.12, threats.length * 0.03) : 0.9;
-
-  let attackType: string | undefined;
-  if (hasThreat) {
-    const labels = new Set(threats.map((t) => t.pattern));
-    if (labels.has("data_exfiltration") || labels.has("data_leak")) {
-      attackType = "Prompt Injection / Data Exfiltration";
-    } else if (labels.has("ignore_previous_instructions")) {
-      attackType = "Direct Prompt Injection";
-    } else if ([...labels].some((l) => l.startsWith("llm"))) {
-      attackType = "LLM-Detected Instruction Override";
-    } else {
-      attackType = "LLM Instruction Override";
-    }
-  }
+  const riskScore = riskFromThreats(threats);
+  const confidence = confidenceFromThreats(threats);
+  const attackType = classifyAttack(threats);
 
   const summary = hasThreat
     ? "Pattern-based detection found instructions targeting LLM behavior."
