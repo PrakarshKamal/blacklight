@@ -135,6 +135,11 @@ export function ThreatResults({ scanState, result, logs }: ThreatResultsProps) {
           {result.sanitized.length > 1500 ? "…" : ""}
         </ScrollArea>
       </div>
+
+      <p className="border-t border-zinc-800/80 pt-3 text-[11px] leading-relaxed text-zinc-500">
+        Automated heuristic + AI analysis. Results are advisory and may produce
+        false positives or negatives — verify critical documents manually.
+      </p>
     </div>
   );
 }
