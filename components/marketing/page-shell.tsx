@@ -5,6 +5,7 @@ import { FeaturesBento } from "@/components/marketing/features-bento";
 import { HowItWorks } from "@/components/marketing/how-it-works";
 import { SiteFooter } from "@/components/marketing/site-footer";
 import { ScannerWorkspace } from "@/components/scanner/scanner-workspace";
+import { ScannerErrorBoundary } from "@/components/scanner/scanner-error-boundary";
 
 export function PageShell() {
   return (
@@ -15,7 +16,9 @@ export function PageShell() {
           <HeroSection />
           <FeaturesBento />
           <HowItWorks />
-          <ScannerWorkspace />
+          <ScannerErrorBoundary>
+            <ScannerWorkspace />
+          </ScannerErrorBoundary>
         </main>
         <SiteFooter />
       </GridBackground>
