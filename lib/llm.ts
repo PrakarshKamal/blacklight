@@ -1,4 +1,7 @@
 import OpenAI from "openai";
+import { z } from "zod";
+import { env, isLlmEnabled } from "./env";
+import { errInfo, logger } from "./logger";
 import type { LlmAnalysis } from "./types";
 
 const LLM_TIMEOUT_MS = 12_000;
@@ -30,19 +33,36 @@ Rules:
 - If clean, threatDetected=false, riskScore under 15, evidence=[]
 - Do not flag normal business language unless it clearly targets LLM behavior`;
 
+/** Schema for the model's JSON response. Falls back to safe defaults per field. */
+const llmResponseSchema = z.object({
+  threatDetected: z.boolean().catch(false),
+  riskScore: z.number().min(0).max(100).catch(0),
+  confidence: z.number().min(0).max(1).catch(0.5),
+  attackType: z.string().nullish(),
+  summary: z.string().catch(""),
+  evidence: z
+    .array(
+      z.object({
+        quote: z.string().catch(""),
+        reason: z.string().catch(""),
+      })
+    )
+    .catch([]),
+});
+
 export async function analyzeWithLlm(
   text: string,
-  layerSummary: string
+  layerSummary: string,
+  log: Pick<typeof logger, "warn"> = logger
 ): Promise<LlmAnalysis | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey?.trim()) return null;
+  if (!isLlmEnabled() || !env.openAiApiKey) return null;
 
   const trimmed = text.slice(0, MAX_TEXT_CHARS);
-  const client = new OpenAI({ apiKey, timeout: LLM_TIMEOUT_MS });
+  const client = new OpenAI({ apiKey: env.openAiApiKey, timeout: LLM_TIMEOUT_MS });
 
   try {
     const completion = await client.chat.completions.create({
-      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+      model: env.openAiModel,
       response_format: { type: "json_object" },
       temperature: 0.1,
       messages: [
@@ -57,24 +77,31 @@ export async function analyzeWithLlm(
     const raw = completion.choices[0]?.message?.content;
     if (!raw) return null;
 
-    const parsed = JSON.parse(raw) as LlmAnalysis;
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(raw);
+    } catch {
+      log.warn("llm.invalid_json_response");
+      return null;
+    }
+
+    const result = llmResponseSchema.safeParse(parsedJson);
+    if (!result.success) {
+      log.warn("llm.schema_validation_failed");
+      return null;
+    }
+    const parsed = result.data;
 
     return {
-      threatDetected: Boolean(parsed.threatDetected),
-      riskScore: clamp(Number(parsed.riskScore) || 0, 0, 100),
-      confidence: clamp(Number(parsed.confidence) || 0.5, 0, 1),
+      threatDetected: parsed.threatDetected,
+      riskScore: parsed.riskScore,
+      confidence: parsed.confidence,
       attackType: parsed.attackType ?? undefined,
       summary: parsed.summary || "LLM analysis complete.",
-      evidence: Array.isArray(parsed.evidence)
-        ? parsed.evidence.filter((e) => e?.quote?.trim())
-        : [],
+      evidence: parsed.evidence.filter((e) => e.quote.trim()),
     };
   } catch (error) {
-    console.warn("LLM analysis failed:", error);
+    log.warn("llm.analysis_failed", { err: errInfo(error) });
     return null;
   }
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, n));
 }
