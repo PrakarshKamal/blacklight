@@ -48,14 +48,31 @@ Open [https://blacklight-ai.vercel.app/](https://blacklight-ai.vercel.app/) and 
 
 ## API
 
-`POST /api/scan`
+`POST /api/scan` (`multipart/form-data`)
 
-**FormData fields:**
+**Request — provide exactly one of:**
 
-- `file` — uploaded document (PDF, TXT, PNG, JPG, WebP)
-- `sampleId` — one of `malicious-invoice`, `clean-resume`, `malicious-screenshot`
+- `file` — uploaded document. Allowed: `.pdf`, `.txt`, `.md`, `.png`, `.jpg`, `.jpeg`, `.webp`. Max **10 MB**. Contents are sniffed (magic bytes) to confirm they match the extension.
+- `sampleId` — one of `malicious-invoice`, `clean-resume`, `malicious-screenshot`.
 
-**Response:** `status`, `riskScore`, `confidence`, `threats`, `extractedPreview`, `sanitized`, `logs`, and layer metadata.
+Every response includes an `x-request-id` header for log correlation.
+
+**Success (`200`):** a JSON `ScanResult` with `status` (`threat` | `clean`), `riskScore` (0–100), `confidence` (0–1), `attackType`, `summary`, `threats`, `extractedPreview`, `sanitized`, `detectionMethod`, `llmUsed`, `ocrUsed`, `layers`, `obfuscationDetected`, and `logs`.
+
+**Error:** a stable envelope `{ "error": { "code", "message" }, "requestId" }`:
+
+| Code | Status | Meaning |
+| ---------------- | ------ | ----------------------------------------- |
+| `INVALID_INPUT` | 400 | Missing/invalid `file` or `sampleId` |
+| `UNSUPPORTED_TYPE` | 415 | Extension not allowed or bytes mismatch |
+| `FILE_TOO_LARGE` | 413 | Upload exceeds the 10 MB limit |
+| `NO_TEXT` | 422 | No extractable text in the document |
+| `RATE_LIMITED` | 429 | Too many requests (see `Retry-After`) |
+| `INTERNAL` | 500 | Unexpected server error |
+
+**Rate limiting:** best-effort in-memory token bucket (~10 requests/min per client IP). On multi-instance/serverless deployments this is per-instance, not a global quota — back it with a shared store (Redis/Upstash) for hard enforcement.
+
+**Lite mode:** on serverless (`VERCEL=1`) or when `BLACKLIGHT_LIGHT_SCAN=true`, extraction uses the PDF text layer plus a single fast OCR pass to stay within function limits. The **same document** is always scanned — only extraction depth changes.
 
 ## Environment variables
 
