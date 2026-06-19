@@ -1,8 +1,4 @@
-import {
-  classifyAttack,
-  confidenceFromThreats,
-  riskFromThreats,
-} from "./scoring";
+import { classifyAttack, riskFromThreats } from "./scoring";
 import type { Severity, ThreatMatch } from "./types";
 
 type InjectionPattern = { pattern: RegExp; label: string; severity: Severity };
@@ -178,12 +174,11 @@ export function sanitizeText(text: string, threats: ThreatMatch[]): string {
 export function buildScanMetrics(threats: ThreatMatch[]) {
   const hasThreat = threats.length > 0;
   const riskScore = riskFromThreats(threats);
-  const confidence = confidenceFromThreats(threats);
   const attackType = classifyAttack(threats);
 
   const summary = hasThreat
     ? "Pattern-based detection found instructions targeting LLM behavior."
     : "No prompt injection patterns detected in extracted text.";
 
-  return { hasThreat, riskScore, confidence, attackType, summary };
+  return { hasThreat, riskScore, attackType, summary };
 }

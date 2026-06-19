@@ -8,7 +8,13 @@ import {
   mergeThreatLists,
   sanitizeText,
 } from "./scan";
-import { OBFUSCATION_CONFIDENCE_FLOOR, OBFUSCATION_RISK_FLOOR } from "./scoring";
+import { isServerlessEnvironment } from "./runtime";
+import {
+  cleanResidualRisk,
+  computeConfidence,
+  OBFUSCATION_CONFIDENCE_FLOOR,
+  OBFUSCATION_RISK_FLOOR,
+} from "./scoring";
 import type {
   ExtractionResult,
   LlmAnalysis,
@@ -38,31 +44,37 @@ function threatsFromLlmEvidence(
 
 function resolveMetrics(
   regexThreats: ThreatMatch[],
-  llm: LlmAnalysis | null
+  llm: LlmAnalysis | null,
+  soft: { footerConcealment?: boolean }
 ) {
   const regexMetrics = buildScanMetrics(regexThreats);
 
   if (!llm) {
     return {
-      ...regexMetrics,
+      hasThreat: regexMetrics.hasThreat,
+      // A clean regex-only verdict carries no residual risk unless a soft
+      // signal (footer concealment) is present.
+      riskScore: regexMetrics.hasThreat
+        ? regexMetrics.riskScore
+        : cleanResidualRisk(soft),
+      attackType: regexMetrics.attackType,
+      summary: regexMetrics.summary,
       detectionMethod: "regex" as const,
       llmUsed: false,
+      llmAgreed: false,
     };
   }
 
   const hasThreat = regexMetrics.hasThreat || llm.threatDetected;
+  // Clean documents derive their (small) residual risk from the model's own
+  // low read plus soft signals, instead of a flat constant.
   const riskScore = hasThreat
     ? Math.max(regexMetrics.riskScore, llm.riskScore)
-    : Math.min(regexMetrics.riskScore, llm.riskScore);
-
-  const confidence = hasThreat
-    ? Math.max(regexMetrics.confidence, llm.confidence)
-    : (regexMetrics.confidence + llm.confidence) / 2;
+    : cleanResidualRisk(soft);
 
   return {
     hasThreat,
     riskScore,
-    confidence,
     attackType: llm.attackType ?? regexMetrics.attackType,
     summary: llm.summary || regexMetrics.summary,
     detectionMethod: regexThreats.length > 0 && llm.threatDetected
@@ -73,6 +85,8 @@ function resolveMetrics(
           ? ("hybrid" as const)
           : ("llm" as const),
     llmUsed: true,
+    // Agreement = the model's verdict matches the final verdict.
+    llmAgreed: llm.threatDetected === hasThreat,
   };
 }
 
@@ -81,7 +95,6 @@ function applyObfuscationSuspicion(
   base: {
     hasThreat: boolean;
     riskScore: number;
-    confidence: number;
     attackType?: string;
     summary: string;
   }
@@ -115,7 +128,6 @@ function applyObfuscationSuspicion(
   return {
     hasThreat: true,
     riskScore: Math.max(base.riskScore, OBFUSCATION_RISK_FLOOR),
-    confidence: Math.max(base.confidence, OBFUSCATION_CONFIDENCE_FLOOR),
     attackType: "Visual Obfuscation (concealed region)",
     summary: `${obfuscationSummary} Content may be hidden under a white rectangle; review PDF text layer or source file.`,
     obfuscationDetected: true,
@@ -180,19 +192,43 @@ export async function analyzeDocument(
   const llmThreats = llm ? threatsFromLlmEvidence(fullText, llm) : [];
   const threats = mergeThreatLists(regexThreats, llmThreats);
 
-  const metrics = resolveMetrics(regexThreats, llm);
+  const footerConcealment = extraction.obfuscation?.footerConcealment ?? false;
+  const metrics = resolveMetrics(regexThreats, llm, { footerConcealment });
   let hasThreat =
     metrics.hasThreat || threats.length > 0 || (llm?.threatDetected ?? false);
 
   const withObfuscation = applyObfuscationSuspicion(extraction, {
     hasThreat,
     riskScore: metrics.riskScore,
-    confidence: metrics.confidence,
     attackType: metrics.attackType,
     summary: metrics.summary,
   });
 
   hasThreat = withObfuscation.hasThreat;
+
+  // Confidence reflects how thoroughly we examined the document, not a flat
+  // constant. Compute it from real coverage signals available at this point.
+  const ocrYield = layers
+    .filter((l) => l.source === "ocr_image" || l.source === "ocr_pdf_embedded")
+    .reduce((sum, l) => sum + l.content.length, 0);
+
+  const baseConfidence = computeConfidence({
+    threatCount: threats.length,
+    llmUsed: metrics.llmUsed,
+    llmAgreed: metrics.llmAgreed,
+    textLength: fullText.length,
+    layerCount: layers.length,
+    ocrUsed,
+    ocrYield,
+    liteMode: isServerlessEnvironment(),
+  });
+
+  // When obfuscation alone escalated an otherwise-clean document to a threat,
+  // keep the elevated certainty floor for that detection path.
+  const confidence =
+    withObfuscation.obfuscationDetected && hasThreat
+      ? Math.max(baseConfidence, OBFUSCATION_CONFIDENCE_FLOOR)
+      : baseConfidence;
 
   const status: ScanResult["status"] = hasThreat ? "threat" : "clean";
   const sanitized = hasThreat ? sanitizeText(fullText, threats) : fullText;
@@ -210,7 +246,7 @@ export async function analyzeDocument(
   return {
     status,
     riskScore: withObfuscation.riskScore,
-    confidence: withObfuscation.confidence,
+    confidence,
     attackType: withObfuscation.attackType,
     summary: withObfuscation.summary,
     fileName,

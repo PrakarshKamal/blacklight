@@ -20,21 +20,13 @@ export const SEVERITY_WEIGHT: Record<Severity, number> = {
 
 /** Risk floor once any threat is present, before severity weights are added. */
 const BASE_THREAT_RISK = 35;
-/** Risk for a document with no detected signals. */
-export const CLEAN_RISK = 4;
 /** Hard ceiling so we never report a misleading "100% certain" score. */
 const MAX_RISK = 99;
 /** Each additional signal beyond the strongest contributes weight * damping^i. */
 const ADDITIONAL_SIGNAL_DAMPING = 0.45;
 
-/** Confidence model: more independent signals (and LLM corroboration) raise it. */
-const CONFIDENCE_BASE = 0.6;
-const CONFIDENCE_PER_SIGNAL = 0.07;
-const CONFIDENCE_LLM_BONUS = 0.1;
-const CONFIDENCE_MIN = 0.5;
-const CONFIDENCE_MAX = 0.98;
-/** Confidence that a document is clean when nothing trips a signal. */
-export const CLEAN_CONFIDENCE = 0.9;
+/** Residual risk attributed to a sub-threshold footer-concealment signal. */
+const FOOTER_CONCEALMENT_RESIDUAL = 8;
 
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
@@ -46,7 +38,7 @@ function severityOf(threat: ThreatMatch): Severity {
 
 /** Risk score (0-100) derived from the severities of all detected threats. */
 export function riskFromThreats(threats: ThreatMatch[]): number {
-  if (threats.length === 0) return CLEAN_RISK;
+  if (threats.length === 0) return 0;
 
   const weights = threats
     .map((t) => SEVERITY_WEIGHT[severityOf(t)])
@@ -56,20 +48,104 @@ export function riskFromThreats(threats: ThreatMatch[]): number {
   for (let i = 1; i < weights.length; i++) {
     score += weights[i] * Math.pow(ADDITIONAL_SIGNAL_DAMPING, i);
   }
-  return clamp(Math.round(score), CLEAN_RISK, MAX_RISK);
+  return clamp(Math.round(score), 0, MAX_RISK);
 }
 
-/** Confidence (0-1) in the verdict given signal count and LLM corroboration. */
-export function confidenceFromThreats(
-  threats: ThreatMatch[],
-  llmCorroborated = false
+/**
+ * Residual risk for a document with no flagged threats. A clean verdict is
+ * exactly 0 — we deliberately do NOT inherit the model's self-reported "low"
+ * score (it just hovers around its clean floor and adds no real signal). Risk
+ * rises above 0 only when a genuine soft signal fires, currently a
+ * sub-threshold footer-concealment hint.
+ */
+export function cleanResidualRisk(
+  soft: { footerConcealment?: boolean } = {}
 ): number {
-  if (threats.length === 0) return CLEAN_CONFIDENCE;
-  const raw =
-    CONFIDENCE_BASE +
-    threats.length * CONFIDENCE_PER_SIGNAL +
-    (llmCorroborated ? CONFIDENCE_LLM_BONUS : 0);
-  return clamp(Number(raw.toFixed(2)), CONFIDENCE_MIN, CONFIDENCE_MAX);
+  return soft.footerConcealment ? FOOTER_CONCEALMENT_RESIDUAL : 0;
+}
+
+/**
+ * Confidence model. Confidence reflects how thoroughly we could examine the
+ * document and how much corroboration the verdict has — not a fixed constant.
+ */
+export type ConfidenceSignals = {
+  /** Number of distinct threat matches (0 for a clean verdict). */
+  threatCount: number;
+  /** Whether the LLM layer produced a second opinion. */
+  llmUsed: boolean;
+  /** Whether the LLM's verdict matched the final verdict. */
+  llmAgreed: boolean;
+  /** Total characters of text analyzed. */
+  textLength: number;
+  /** Number of distinct extraction layers examined (pages, OCR passes, etc.). */
+  layerCount: number;
+  /** Whether OCR was part of extraction. */
+  ocrUsed: boolean;
+  /** Characters recovered specifically via OCR. */
+  ocrYield: number;
+  /** Reduced-depth (serverless single-pass) extraction. */
+  liteMode: boolean;
+};
+
+const CONF = {
+  base: 0.55,
+  /** A second opinion from the LLM. */
+  llm: 0.15,
+  /** Regex and LLM agree on the verdict. */
+  agreement: 0.08,
+  /**
+   * Content coverage. A smooth, never-fully-saturating curve over how much
+   * text we actually analyzed: `weight * (1 - e^(-len / scale))`. Unlike a
+   * hard cap this keeps rising with length, so two clean docs of different
+   * size land at different confidences instead of a shared constant.
+   */
+  contentWeight: 0.17,
+  contentScale: 700,
+  /** Breadth credit for analyzing multiple layers, with diminishing returns. */
+  layerWeight: 0.04,
+  layerScale: 3,
+  /** Each corroborating threat signal (capped). */
+  perThreat: 0.05,
+  maxThreatBonus: 4,
+  /** An image whose OCR recovered almost nothing may hide content. */
+  ocrLowPenalty: 0.15,
+  ocrLowThreshold: 40,
+  /** Reduced extraction depth lowers certainty. */
+  liteModePenalty: 0.07,
+  min: 0.4,
+  max: 0.97,
+};
+
+/** Diminishing-returns curve in [0, 1): 0 at x=0, approaching 1 as x grows. */
+function saturating(x: number, scale: number): number {
+  return 1 - Math.exp(-Math.max(0, x) / scale);
+}
+
+/** Confidence (0-1) in the verdict, derived from real per-scan coverage signals. */
+export function computeConfidence(signals: ConfidenceSignals): number {
+  let c = CONF.base;
+
+  if (signals.llmUsed) c += CONF.llm;
+  if (signals.llmAgreed) c += CONF.agreement;
+
+  // How much content we examined and across how many layers — both vary per
+  // document, so similar-but-not-identical files get distinct scores.
+  c += CONF.contentWeight * saturating(signals.textLength, CONF.contentScale);
+  c += CONF.layerWeight * saturating(signals.layerCount, CONF.layerScale);
+
+  if (signals.threatCount > 0) {
+    c += CONF.perThreat * Math.min(signals.threatCount, CONF.maxThreatBonus);
+  }
+
+  // An image we OCR'd but recovered almost no text from is a coverage gap:
+  // hidden/low-contrast content may have been missed, so we are less certain.
+  if (signals.ocrUsed && signals.ocrYield < CONF.ocrLowThreshold) {
+    c -= CONF.ocrLowPenalty;
+  }
+
+  if (signals.liteMode) c -= CONF.liteModePenalty;
+
+  return clamp(Number(c.toFixed(3)), CONF.min, CONF.max);
 }
 
 /** Human-readable attack classification from the matched pattern labels. */
