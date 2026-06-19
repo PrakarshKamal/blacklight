@@ -1,3 +1,5 @@
+import { errInfo, logger } from "./logger";
+
 type SharpFactory = (input: Buffer, options?: { failOn?: string }) => {
   rotate: () => SharpPipeline;
   metadata: () => Promise<{ width?: number; height?: number }>;
@@ -170,7 +172,7 @@ export async function ocrFromBufferDetailed(
           logger: () => {},
         });
       } catch (ocrErr) {
-        console.warn("OCR pass failed:", candidate.label, ocrErr);
+        logger.warn("ocr.pass_failed", { pass: candidate.label, err: errInfo(ocrErr) });
         continue;
       }
       const text = (result.data.text ?? "").trim();
@@ -184,7 +186,7 @@ export async function ocrFromBufferDetailed(
 
     return { text: best, bestPass };
   } catch (err) {
-    console.warn("OCR pipeline failed:", err);
+    logger.warn("ocr.pipeline_failed", { err: errInfo(err) });
     return { text: "", bestPass: "failed" };
   } finally {
     clearTimeout(timer);

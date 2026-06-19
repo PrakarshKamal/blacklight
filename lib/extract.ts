@@ -1,5 +1,6 @@
 import { readFile } from "fs/promises";
 import path from "path";
+import { errInfo, logger } from "./logger";
 import { detectVisualObfuscation } from "./obfuscation";
 import { ocrFromBufferDetailed } from "./ocr";
 import { appOrigin, isServerlessEnvironment } from "./runtime";
@@ -111,7 +112,7 @@ async function extractPdfLayers(buffer: Buffer): Promise<{
         }
       }
     } catch (screenErr) {
-      console.warn("PDF page OCR skipped:", screenErr);
+      logger.warn("extract.pdf_page_ocr_skipped", { err: errInfo(screenErr) });
     }
 
     try {
@@ -139,7 +140,7 @@ async function extractPdfLayers(buffer: Buffer): Promise<{
         }
       }
     } catch (imgErr) {
-      console.warn("PDF embedded image OCR skipped:", imgErr);
+      logger.warn("extract.pdf_embedded_image_ocr_skipped", { err: errInfo(imgErr) });
     }
   } finally {
     await parser.destroy();
@@ -216,25 +217,33 @@ export async function extractFromBuffer(
   };
 }
 
+/**
+ * Canonical demo samples. The same artifact is scanned in every environment —
+ * serverless only changes the extraction depth (see `isServerlessEnvironment`),
+ * never which document is analyzed.
+ */
+export const SAMPLE_FILES = {
+  "malicious-invoice": "invoice-malicious.pdf",
+  "clean-resume": "resume-clean.pdf",
+  "malicious-screenshot": "malicious-screenshot.png",
+} as const;
+
+export type SampleId = keyof typeof SAMPLE_FILES;
+
+export const SAMPLE_IDS = Object.keys(SAMPLE_FILES) as SampleId[];
+
+export function isSampleId(value: string): value is SampleId {
+  return value in SAMPLE_FILES;
+}
+
 export async function loadSampleFile(sampleId: string): Promise<{
   buffer: Buffer;
   fileName: string;
 }> {
-  const map: Record<string, string> = {
-    // Vercel serverless: avoid PDF parsing by using deterministic text sample.
-    "malicious-invoice": isServerlessEnvironment()
-      ? "invoice.txt"
-      : "invoice-malicious.pdf",
-    "clean-resume": isServerlessEnvironment() ? "resume.txt" : "resume-clean.pdf",
-    "malicious-screenshot": isServerlessEnvironment()
-      ? "screenshot-ocr.txt"
-      : "malicious-screenshot.png",
-  };
-
-  const fileName = map[sampleId];
-  if (!fileName) {
+  if (!isSampleId(sampleId)) {
     throw new Error(`Unknown sample: ${sampleId}`);
   }
+  const fileName = SAMPLE_FILES[sampleId];
 
   const filePath = path.join(process.cwd(), "public", "samples", fileName);
 
@@ -242,7 +251,7 @@ export async function loadSampleFile(sampleId: string): Promise<{
     const buffer = await readFile(filePath);
     return { buffer, fileName };
   } catch (readErr) {
-    console.warn("Sample readFile failed, fetching from app origin:", readErr);
+    logger.warn("sample.readFile_failed_fetching_origin", { fileName, err: errInfo(readErr) });
     const url = `${appOrigin()}/samples/${encodeURIComponent(fileName)}`;
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) {
