@@ -37,9 +37,15 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
-  serverExternalPackages: ["pdf-parse", "tesseract.js", "sharp"],
+  serverExternalPackages: ["pdf-parse", "tesseract.js", "sharp", "@napi-rs/canvas"],
   outputFileTracingIncludes: {
-    "/api/scan": ["./public/samples/**/*"],
+    "/api/scan": [
+      "./public/samples/**/*",
+      "./node_modules/tesseract.js/src/**/*",
+      "./node_modules/tesseract.js-core/**/*",
+      "./node_modules/@napi-rs/canvas/**/*",
+      "./node_modules/@napi-rs/canvas-*/**/*",
+    ],
   },
   async headers() {
     return [

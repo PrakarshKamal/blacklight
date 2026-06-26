@@ -1,12 +1,15 @@
 import { readFile } from "fs/promises";
 import path from "path";
+// Importing the worker module registers the @napi-rs/canvas polyfill for
+// DOMMatrix/Path2D/ImageData, which pdfjs-dist needs in Node serverless runtimes.
+import { CanvasFactory } from "pdf-parse/worker";
 import { errInfo, logger } from "./logger";
 import { detectVisualObfuscation } from "./obfuscation";
 import { ocrFromBufferDetailed } from "./ocr";
 import { appOrigin, isServerlessEnvironment } from "./runtime";
 import type { ExtractionLayer, ExtractionResult } from "./types";
 
-type PdfParseCtor = new (options: { data: Buffer }) => {
+type PdfParseCtor = new (options: { data: Buffer; CanvasFactory?: unknown }) => {
   getText: () => Promise<{ text?: string }>;
   getScreenshot: (options: {
     imageBuffer: boolean;
@@ -49,7 +52,7 @@ async function extractPdfLayersLight(buffer: Buffer): Promise<{
   pdfTextLayerLeak: boolean;
 }> {
   const PDFParse = await getPdfParse();
-  const parser = new PDFParse({ data: buffer });
+  const parser = new PDFParse({ data: buffer, CanvasFactory });
   try {
     const textResult = await parser.getText();
     const pdfText = (textResult.text ?? "").trim();
@@ -79,7 +82,7 @@ async function extractPdfLayers(buffer: Buffer): Promise<{
   let pdfText = "";
   let pageOcrCombined = "";
   const PDFParse = await getPdfParse();
-  const parser = new PDFParse({ data: buffer });
+  const parser = new PDFParse({ data: buffer, CanvasFactory });
 
   try {
     const textResult = await parser.getText();

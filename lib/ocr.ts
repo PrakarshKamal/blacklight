@@ -1,3 +1,5 @@
+import os from "os";
+import path from "path";
 import { errInfo, logger } from "./logger";
 
 type SharpFactory = (input: Buffer, options?: { failOn?: string }) => {
@@ -34,29 +36,33 @@ type SharpLike = {
   default?: SharpFactory;
 } & SharpFactory;
 
+type TesseractWorker = {
+  recognize: (image: Buffer) => Promise<{ data: { text?: string } }>;
+};
+
+type WorkerOptions = {
+  workerPath?: string;
+  cachePath?: string;
+  logger?: (m: unknown) => void;
+};
+
 type TesseractLike = {
   default?: {
-    recognize: (
-      image: Buffer,
-      lang: string,
-      options?: { logger?: (m: unknown) => void }
-    ) => Promise<{ data: { text?: string } }>;
+    createWorker: (
+      langs: string,
+      oem: number,
+      options?: WorkerOptions
+    ) => Promise<TesseractWorker>;
   };
-  recognize?: (
-    image: Buffer,
-    lang: string,
-    options?: { logger?: (m: unknown) => void }
-  ) => Promise<{ data: { text?: string } }>;
+  createWorker?: (
+    langs: string,
+    oem: number,
+    options?: WorkerOptions
+  ) => Promise<TesseractWorker>;
 };
 
 let sharpFactory: SharpFactory | null = null;
-let tesseractRecognize:
-  | ((
-      image: Buffer,
-      lang: string,
-      options?: { logger?: (m: unknown) => void }
-    ) => Promise<{ data: { text?: string } }>)
-  | null = null;
+let tesseractWorker: Promise<TesseractWorker> | null = null;
 
 async function getSharpFactory(): Promise<SharpFactory> {
   if (!sharpFactory) {
@@ -66,16 +72,37 @@ async function getSharpFactory(): Promise<SharpFactory> {
   return sharpFactory;
 }
 
-async function getTesseractRecognize(): Promise<NonNullable<typeof tesseractRecognize>> {
-  if (!tesseractRecognize) {
-    const mod = (await import("tesseract.js")) as unknown as TesseractLike;
-    tesseractRecognize =
-      mod.default?.recognize ?? mod.recognize ?? null;
-    if (!tesseractRecognize) {
-      throw new Error("tesseract.js recognize() not available");
-    }
+/**
+ * A single cached Tesseract worker reused across passes/requests on a warm
+ * lambda. The explicit `workerPath` points at the real file in node_modules
+ * (build systems relocate files and break the worker's relative `require`),
+ * and `cachePath` is a writable temp dir for the downloaded language data
+ * (the default `.` is read-only on serverless platforms).
+ */
+async function getTesseractWorker(): Promise<TesseractWorker> {
+  if (!tesseractWorker) {
+    tesseractWorker = (async () => {
+      const mod = (await import("tesseract.js")) as unknown as TesseractLike;
+      const createWorker = mod.default?.createWorker ?? mod.createWorker ?? null;
+      if (!createWorker) {
+        throw new Error("tesseract.js createWorker() not available");
+      }
+      return createWorker("eng", 1, {
+        workerPath: path.join(
+          process.cwd(),
+          "node_modules",
+          "tesseract.js",
+          "src",
+          "worker-script",
+          "node",
+          "index.js"
+        ),
+        cachePath: os.tmpdir(),
+        logger: () => {},
+      });
+    })();
   }
-  return tesseractRecognize;
+  return tesseractWorker;
 }
 
 const MAX_OCR_MS = 25_000;
@@ -167,10 +194,8 @@ export async function ocrFromBufferDetailed(
     for (const candidate of candidates) {
       let result;
       try {
-        const recognize = await getTesseractRecognize();
-        result = await recognize(candidate.buffer, "eng", {
-          logger: () => {},
-        });
+        const worker = await getTesseractWorker();
+        result = await worker.recognize(candidate.buffer);
       } catch (ocrErr) {
         logger.warn("ocr.pass_failed", { pass: candidate.label, err: errInfo(ocrErr) });
         continue;
