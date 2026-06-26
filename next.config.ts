@@ -43,6 +43,15 @@ const nextConfig: NextConfig = {
       "./public/samples/**/*",
       "./node_modules/tesseract.js/src/**/*",
       "./node_modules/tesseract.js-core/**/*",
+      // tesseract.js's worker thread runs outside Next's module resolution, so
+      // its own runtime deps must be force-traced into the function bundle.
+      "./node_modules/bmp-js/**/*",
+      "./node_modules/is-url/**/*",
+      "./node_modules/node-fetch/**/*",
+      "./node_modules/zlibjs/**/*",
+      "./node_modules/wasm-feature-detect/**/*",
+      "./node_modules/regenerator-runtime/**/*",
+      "./node_modules/idb-keyval/**/*",
       "./node_modules/@napi-rs/canvas/**/*",
       "./node_modules/@napi-rs/canvas-*/**/*",
     ],
